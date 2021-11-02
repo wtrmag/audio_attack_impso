@@ -18,7 +18,7 @@ import numpy as np
 class MultiEnvEvaluator:
     def __init__(self, make_net, activate_net, batch_size=1, max_env_steps=None, make_env=None, envs=None):
         if envs is None:
-            self.envs = [make_env() for _ in range(batch_size)]
+            self.envs = [make_env for _ in range(batch_size)]
         else:
             self.envs = envs
         self.make_net = make_net

@@ -5,6 +5,7 @@ import scipy.io.wavfile as wav
 from scipy.signal import butter, lfilter
 import click
 import neat
+import gym
 from pytorch_neat.multi_env_eval import MultiEnvEvaluator
 from pytorch_neat.neat_reporter import LogReporter
 from pytorch_neat.recurrent_net import RecurrentNet
