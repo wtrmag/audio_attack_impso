@@ -66,10 +66,12 @@ class Attack():
         self.pop = np.tile(self.pop, (self.pop_size, 1))
         self.output_wave_file = output_wave_file
         self.target_phrase = target_phrase
-        self.funcs = self.setup_graph(self.pop, np.array([toks.index(x) for x in target_phrase]))
 
 
-    def setup_graph(self, input_audio_batch, target_phrase):
+    def get_ctcloss(self):
+        input_audio_batch = self.pop
+        target_phrase = self.target_phrase
+
         batch_size = input_audio_batch.shape[0]
         weird = (input_audio_batch.shape[1] - 1) // 320
         logits_arg2 = np.tile(weird, batch_size)
@@ -92,49 +94,41 @@ class Attack():
             ctcloss = tf.nn.ctc_loss(labels=tf.cast(target, tf.int32), inputs=logits, sequence_length=len_seq)
             decoded, _ = tf.nn.ctc_greedy_decoder(logits, arg2_logits, merge_repeated=True)
 
-            sess = tf.Session()
             saver = tf.train.Saver(tf.global_variables())
             saver.restore(sess, "models/session_dump")
 
-        func1 = lambda a, b, c, d, e, f: sess.run(ctcloss,
+        func0 = lambda a, b, c, d, e, f: sess.run(ctcloss,
                                                   feed_dict={inputs: a, len_batch: b, arg2_logits: c, arg1_dense: d,
                                                              arg2_dense: e, len_seq: f})
-        func2 = lambda a, b, c, d, e, f: sess.run([ctcloss, decoded],
+        func1 = lambda a, b, c, d, e, f: sess.run([ctcloss, decoded],
                                                   feed_dict={inputs: a, len_batch: b, arg2_logits: c, arg1_dense: d,
                                                              arg2_dense: e, len_seq: f})
-        return (func1, func2)
+        return (func0, func1)
 
 
-    def getctcloss(self, input_audio_batch, target_phrase, decode=False):
+    def run(self, decode):
+        input_audio_batch = self.pop
+        target_phrase = self.target_phrase
+        target_in = np.array([toks.index(x) for x in target_phrase])
 
         batch_size = input_audio_batch.shape[0]
         weird = (input_audio_batch.shape[1] - 1) // 320
         logits_arg2 = np.tile(weird, batch_size)
-        dense_arg1 = np.array(np.tile(target_phrase, (batch_size, 1)), dtype=np.int32)
-        dense_arg2 = np.array(np.tile(target_phrase.shape[0], batch_size), dtype=np.int32)
+        dense_arg1 = np.array(np.tile(target_in, (batch_size, 1)), dtype=np.int32)
+        dense_arg2 = np.array(np.tile(target_in.shape[0], batch_size), dtype=np.int32)
 
         pass_in = np.clip(input_audio_batch, -2 ** 15, 2 ** 15 - 1)
         seq_len = np.tile(weird, batch_size).astype(np.int32)
 
         if decode:
-            return self.funcs[1](pass_in, batch_size, logits_arg2, dense_arg1, dense_arg2, seq_len)
+            self.get_ctcloss()[1](pass_in, batch_size, logits_arg2, dense_arg1, dense_arg2, seq_len)
+            # sess.run([ctcloss, decoded], feed_dict={inputs: pass_in, len_batch: batch_size, arg2_logits: logits_arg2,
+            #                                         arg1_dense: dense_arg1, arg2_dense: dense_arg2, len_seq: seq_len})
         else:
-            return self.funcs[0](pass_in, batch_size, logits_arg2, dense_arg1, dense_arg2, seq_len)
+            self.get_ctcloss()[0](pass_in, batch_size, logits_arg2, dense_arg1, dense_arg2, seq_len)
+            # sess.run(ctcloss, feed_dict={inputs: pass_in, len_batch: batch_size, arg2_logits: logits_arg2,
+            #                              arg1_dense: dense_arg1, arg2_dense: dense_arg2, len_seq: seq_len})
 
-
-    def get_fitness_score(self, input_audio_batch, target_phrase, input_audio, classify=False):
-        target_enc = np.array([toks.index(x) for x in target_phrase])
-        if classify:
-            ctcloss, decoded = self.getctcloss(input_audio_batch, target_enc, decode=True)
-            all_text = "".join([toks[x] for x in decoded[0].values])
-            index = len(all_text) // input_audio_batch.shape[0]
-            final_text = all_text[:index]
-        else:
-            ctcloss = self.getctcloss(input_audio_batch, target_enc)
-        score = -ctcloss
-        if classify:
-            return (score, final_text)
-        return score, -ctcloss
 
 
 if '__name__' == '__main__':
@@ -147,7 +141,6 @@ if '__name__' == '__main__':
     print('source file:', inp_wav_file)
 
     attack = Attack(inp_wav_file, out_wav_file, target)
-    ctc_loss = attack.getctcloss(attack.pop, attack.target_phrase)
 
     x = tf.placeholder(tf.float32)
     y_ = tf.placeholder(tf.float32)
@@ -194,14 +187,17 @@ if '__name__' == '__main__':
     y_conv = tf.matmul(h_fc1_dropout, W_fc2) + b_fc2
 
     # ------train and evaluate----#
-    train_step = tf.train.AdamOptimizer(100).minimize(ctc_loss)
+    fun = attack.get_ctcloss()
+    train_step = tf.train.AdamOptimizer(100).minimize()
     accuracy = tf.reduce_mean(tf.cast(tf.equal(tf.argmax(y_, 1), tf.argmax(y_conv, 1)), tf.float32))
 
     with tf.Session() as sess:
         tf.global_variables_initializer().run()
 
 
-        print('the test accuracy :{}'.format(test_accuracy))
+
+
+        print('the test accuracy :{}'.format())
         saver = tf.train.Saver(tf.global_variables())
         path = saver.restore(sess, "models/session_dump")
         print('save path: {}'.format(path))
