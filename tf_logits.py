@@ -7,8 +7,6 @@
 
 import os
 import sys
-sys.path.append("DeepSpeech")
-
 import numpy as np
 import tensorflow as tf
 import scipy.io.wavfile as wav
@@ -20,8 +18,10 @@ import scipy.io.wavfile as wav
 tf.load_op_library = lambda x: x
 tmp = os.path.exists
 os.path.exists = lambda x: True
-import DeepSpeech
 os.path.exists = tmp
+
+sys.path.append("DeepSpeech")
+import DeepSpeech
 
 
 def compute_mfcc(audio, **kwargs):
