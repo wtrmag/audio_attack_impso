@@ -68,3 +68,19 @@ class Eval():
         index = len(all_text) // self.batch_size
         final_text = all_text[:index]
         return np.array(-loss), final_text
+
+    def decode_text(self, decode):
+        final_index = []
+        str_index = []
+        temp = 0
+        ind = 0
+        for i, j in decode[0].indices:
+            if temp == i:
+                str_index.append(decode[0].values[ind])
+            else:
+                final_index.append(str_index)
+                temp += 1
+                str_index = []
+                str_index.append(decode[0].values[ind])
+            ind += 1
+        return [''.join([tokens[i] for i in index]) for index in final_index]

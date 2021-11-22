@@ -6,6 +6,22 @@ from eval import Eval, load_wav
 from scipy.signal import butter, lfilter
 
 
+def levenshtein_distance(s1, s2):
+    if len(s1) > len(s2):
+        s1, s2 = s2, s1
+
+    distances = range(len(s1) + 1)
+    for i2, c2 in enumerate(s2):
+        distances_ = [i2 + 1]
+        for i1, c1 in enumerate(s1):
+            if c1 == c2:
+                distances_.append(distances[i1])
+            else:
+                distances_.append(1 + min((distances[i1], distances[i1 + 1], distances_[-1])))
+        distances = distances_
+    return distances[-1]
+
+
 class Particle_Swarm():
     def __init__(self, input_wav_file, phrase, capacity=100, iterations=3000, c1=0.5, c2=0.5):
         self.w_ini = 0.9
@@ -26,31 +42,31 @@ class Particle_Swarm():
         b, a = butter(10, 0.75, btype='high', analog=False)
         return lfilter(b, a, noise)
 
-    # def generate_noise(self, mutation_p):
-    #     noise = np.random.randn() * self.noise_stedv
-    #     b, a = butter(10, 0.75, btype='high', analog=False)
-    #     noise = lfilter(b, a, noise)
-    #     mask = np.random.rand(self.swarm_capacity, self.dimension) < mutation_p
-    #     return noise * mask
     def find_region_extreme(self, scores, shift):
         region_extreme_index = [scores[i:i + shift].argmax() + i for i in range(0, scores.shape[0], shift)]
         region_extreme = [scores[i:i + shift].max() for i in range(0, scores.shape[0], shift)]
         # region_extreme = [scores[i:i+shift].min() for i in range(0, scores.shape[0], shift)]
         return region_extreme, region_extreme_index
 
-    def run(self, sess):
+    def run(self):
         evaluate = self.eval
         r1 = np.random.rand(self.swarm_capacity, self.dimension)
         r2 = np.random.rand(self.swarm_capacity, self.dimension)
-        pre_scores, curr_text = evaluate.get_fitness(sess, self.swarm)
+        with tf.Session() as sess:
+            tf.global_variables_initializer().run()
+            pre_scores, curr_text = evaluate.get_fitness(sess, self.swarm)
         pre_gbest_score, pre_index = self.find_region_extreme(pre_scores, self.shift)
         gbest = [self.swarm[ind].tolist() for ind in pre_index]
 
         itr = 1
         while itr <= self.max_iterations and curr_text != self.eval.target_phrase:
+            sess = tf.Session()
+            tf.global_variables_initializer()
+
+            dist = levenshtein_distance(curr_text, self.eval.target_phrase)
             print('***** ITERATION {} *****'.format(itr))
-            print('Current phrase: {}'.format(curr_text))
-            self.swarm = self.swarm + self.flying_speed
+            if dist > 2:
+                self.swarm = self.swarm + self.flying_speed
             scores, curr_text = evaluate.get_fitness(sess, self.swarm)
             # scores, curr_text = evaluate.get_fitness(sess, self.swarm + self.flying_speed)
             for k in range(self.swarm_capacity):
@@ -65,9 +81,10 @@ class Particle_Swarm():
                     gbest[i] = self.swarm[curr_index[i]].tolist()
                     pre_index[i] = curr_index[i]
                     pre_gbest_score[i] = curr_best_score[i]
-            temp = np.stack([gbest] * (self.swarm_capacity // self.shift), axis=1)
+            temp = np.stack([gbest] * self.shift, axis=1)
             self.gbest = np.vstack(temp)
 
+            print('Current phrase: {}'.format(curr_text))
             print('Current best_score: {}'.format(max(pre_gbest_score)))
 
             w = (self.w_ini - self.w_end) * (self.max_iterations - itr) / self.max_iterations + self.w_end
@@ -97,8 +114,5 @@ if __name__ == '__main__':
     print('source file:', input_wav_file)
 
     pso = Particle_Swarm(input_wav_file, phrase)
-    with tf.Session() as sess:
-        tf.global_variables_initializer().run()
-
-        res = pso.run(sess)
-        print('success' if res else 'fail')
+    res = pso.run()
+    print('success' if res else 'fail')
