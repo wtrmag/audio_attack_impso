@@ -1,4 +1,5 @@
 import sys
+import math
 import argparse
 import tensorflow as tf
 import numpy as np
@@ -22,28 +23,30 @@ def levenshtein_distance(s1, s2):
     return distances[-1]
 
 
+def init_noise(swarm_capacity, dimension, noise_stedv):
+    noise = np.random.randn(swarm_capacity, dimension) * noise_stedv
+    b, a = butter(10, 0.75, btype='high', analog=False)
+    return lfilter(b, a, noise)
+
+
 class Particle_Swarm():
     def __init__(self, input_wav_file, phrase, capacity=100, iterations=3000, c1=0.5, c2=0.5):
         self.w_ini = 0.9
-        self.w_end = 0.4
+        self.w_end = 0.1
         self.c1, self.c2 = c1, c2
-        self.shift = 2
+        self.shift = 100
         self.noise_stedv = 40
         self.swarm_capacity = capacity
         self.max_iterations = iterations
         self.audio = load_wav(input_wav_file)
         self.dimension = len(self.audio)
-        self.flying_speed = self.init_noise()
+        self.flying_speed = init_noise(self.swarm_capacity, self.dimension, self.noise_stedv)
         self.eval = Eval(self.audio, phrase, capacity)
         self.gbest = self.pbest = self.swarm = self.eval.input_audio
 
-    def init_noise(self):
-        noise = np.random.randn(self.swarm_capacity, self.dimension) * self.noise_stedv
-        b, a = butter(10, 0.75, btype='high', analog=False)
-        return lfilter(b, a, noise)
-
     def find_region_extreme(self, scores, shift):
         region_extreme_index = [scores[i:i + shift].argmax() + i for i in range(0, scores.shape[0], shift)]
+        # region_extreme_index = [scores[i:i + shift].argmin() + i for i in range(0, scores.shape[0], shift)]
         region_extreme = [scores[i:i + shift].max() for i in range(0, scores.shape[0], shift)]
         # region_extreme = [scores[i:i+shift].min() for i in range(0, scores.shape[0], shift)]
         return region_extreme, region_extreme_index
@@ -54,7 +57,7 @@ class Particle_Swarm():
         r2 = np.random.rand(self.swarm_capacity, self.dimension)
         with tf.Session() as sess:
             tf.global_variables_initializer().run()
-            pre_scores, curr_text = evaluate.get_fitness(sess, self.swarm)
+            pre_scores, curr_text, pre_mfcc = evaluate.get_fitness(sess, self.swarm)
         pre_gbest_score, pre_index = self.find_region_extreme(pre_scores, self.shift)
         gbest = [self.swarm[ind].tolist() for ind in pre_index]
 
@@ -63,21 +66,21 @@ class Particle_Swarm():
             sess = tf.Session()
             tf.global_variables_initializer()
 
-            dist = levenshtein_distance(curr_text, self.eval.target_phrase)
+            # dist = levenshtein_distance(curr_text, self.eval.target_phrase)
             print('***** ITERATION {} *****'.format(itr))
-            if dist > 2:
-                self.swarm = self.swarm + self.flying_speed
-            scores, curr_text = evaluate.get_fitness(sess, self.swarm)
+            self.swarm = self.swarm + self.flying_speed
+            scores, curr_text, mfcc = evaluate.get_fitness(sess, self.swarm)
             # scores, curr_text = evaluate.get_fitness(sess, self.swarm + self.flying_speed)
             for k in range(self.swarm_capacity):
                 if scores[k] > pre_scores[k]:
+                    # if scores[k] < pre_scores[k]:
                     self.pbest[k] = self.swarm[k]
                     pre_scores[k] = scores[k]
-                # self.pbest[k] = self.swarm[k] + self.flying_speed[k] if scores[k] > pre_scores[k] else self.pbest[k]
 
             curr_best_score, curr_index = self.find_region_extreme(scores, self.shift)
             for i in range(self.swarm_capacity // self.shift):
                 if curr_best_score[i] > pre_gbest_score[i]:
+                    # if curr_best_score[i] < pre_gbest_score[i]:
                     gbest[i] = self.swarm[curr_index[i]].tolist()
                     pre_index[i] = curr_index[i]
                     pre_gbest_score[i] = curr_best_score[i]
@@ -87,8 +90,11 @@ class Particle_Swarm():
             print('Current phrase: {}'.format(curr_text))
             print('Current best_score: {}'.format(max(pre_gbest_score)))
 
-            w = (self.w_ini - self.w_end) * (self.max_iterations - itr) / self.max_iterations + self.w_end
-            self.flying_speed = w * self.flying_speed + self.c1 * r1 * (self.pbest - self.swarm) \
+            # w = (self.w_ini - self.w_end) * (self.max_iterations - itr) / self.max_iterations + self.w_end
+            # w = self.w_ini * (self.w_ini - self.w_end) * (self.max_iterations - itr) / self.max_iterations
+            # w = self.w_ini - (self.w_ini - self.w_end) * math.pow((itr / self.max_iterations), 2)
+            # w = math.pow(self.w_end * (self.w_ini / self.w_end), 1 / (1 + 10 * itr / self.max_iterations))
+            self.flying_speed = self.flying_speed + self.c1 * r1 * (self.pbest - self.swarm) \
                                 + self.c2 * r2 * (self.gbest - self.swarm)
 
             itr += 1

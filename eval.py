@@ -46,7 +46,7 @@ class Eval():
             arg = tf.placeholder(tf.int32, shape=self.weird.shape, name='arg')
 
             pass_in = tf.clip_by_value(inp, -2 ** 15, 2 ** 15 - 1)
-            logits = get_logits(pass_in, arg)
+            logits, mfcc = get_logits(pass_in, arg)
             target = ctc_label_dense_to_sparse(target_in, target_len)
             ctc_loss = tf.nn.ctc_loss(labels=tf.cast(target, tf.int32), inputs=logits,
                                       sequence_length=arg)
@@ -56,18 +56,20 @@ class Eval():
             saver = tf.train.Saver(tf.global_variables())
             saver.restore(sess, "models/session_dump")
 
-        ctc_loss, decode = sess.run([ctc_loss, decoded],
+        ctc_loss, decode, mfcc = sess.run([ctc_loss, decoded, mfcc],
                                     feed_dict={inp: data, input_len: self.audio_length, target_in:
                                         self.target_index, target_len: self.target_length, arg: self.weird})
         # print('ctc loss :{}'.format(ctc_loss))
-        return ctc_loss, decode
+        return ctc_loss, decode, mfcc
 
     def get_fitness(self, sess, data):
-        loss, decode = self.get_loss(sess, data)
-        all_text = ''.join([tokens[i] for i in decode[0].values])
-        index = len(all_text) // self.batch_size
-        final_text = all_text[:index]
-        return np.array(-loss), final_text
+        loss, decode, mfcc = self.get_loss(sess, data)
+        # all_text = ''.join([tokens[i] for i in decode[0].values])
+        # index = len(all_text) // self.batch_size
+        # final_text = all_text[:index]
+
+        final_text = self.decode_text(decode)
+        return np.array(-loss), final_text[0], mfcc
 
     def decode_text(self, decode):
         final_index = []
