@@ -90,6 +90,8 @@ class Particle_Swarm():
             print('Current phrase: {}'.format(curr_text))
             print('Current best_score: {}'.format(max(pre_gbest_score)))
 
+            sim = evaluate.get_similarity(mfcc, pre_mfcc)
+
             # w = (self.w_ini - self.w_end) * (self.max_iterations - itr) / self.max_iterations + self.w_end
             # w = self.w_ini * (self.w_ini - self.w_end) * (self.max_iterations - itr) / self.max_iterations
             # w = self.w_ini - (self.w_ini - self.w_end) * math.pow((itr / self.max_iterations), 2)

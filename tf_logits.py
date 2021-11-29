@@ -105,5 +105,5 @@ def get_logits(new_input, length, first=[]):
     # 4. Finally we process it with DeepSpeech
     logits = DeepSpeech.BiRNN(features, length, [0]*10)
 
-    return logits, new_input_to_mfcc
+    return logits
 

@@ -1,12 +1,11 @@
-import sys
+import math
 import numpy as np
-import tensorflow as tf
 import scipy.io.wavfile as wav
-from tensorflow.python.keras.backend import ctc_label_dense_to_sparse
 from tf_logits import get_logits
-
-# sys.path.append('DeepSpeech')
-# import DeepSpeech
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+import tensorflow as tf
+from tensorflow.python.keras.backend import ctc_label_dense_to_sparse
 
 tokens = " abcdefghijklmnopqrstuvwxyz'-"
 
@@ -46,7 +45,7 @@ class Eval():
             arg = tf.placeholder(tf.int32, shape=self.weird.shape, name='arg')
 
             pass_in = tf.clip_by_value(inp, -2 ** 15, 2 ** 15 - 1)
-            logits, mfcc = get_logits(pass_in, arg)
+            logits = get_logits(pass_in, arg)
             target = ctc_label_dense_to_sparse(target_in, target_len)
             ctc_loss = tf.nn.ctc_loss(labels=tf.cast(target, tf.int32), inputs=logits,
                                       sequence_length=arg)
@@ -56,20 +55,20 @@ class Eval():
             saver = tf.train.Saver(tf.global_variables())
             saver.restore(sess, "models/session_dump")
 
-        ctc_loss, decode, mfcc = sess.run([ctc_loss, decoded, mfcc],
+        ctc_loss, decode = sess.run([ctc_loss, decoded],
                                     feed_dict={inp: data, input_len: self.audio_length, target_in:
                                         self.target_index, target_len: self.target_length, arg: self.weird})
         # print('ctc loss :{}'.format(ctc_loss))
-        return ctc_loss, decode, mfcc
+        return ctc_loss, decode
 
     def get_fitness(self, sess, data):
-        loss, decode, mfcc = self.get_loss(sess, data)
+        loss, decode = self.get_loss(sess, data)
         # all_text = ''.join([tokens[i] for i in decode[0].values])
         # index = len(all_text) // self.batch_size
         # final_text = all_text[:index]
 
         final_text = self.decode_text(decode)
-        return np.array(-loss), final_text[0], mfcc
+        return np.array(-loss), final_text
 
     def decode_text(self, decode):
         final_index = []
@@ -85,4 +84,10 @@ class Eval():
                 str_index = []
                 str_index.append(decode[0].values[ind])
             ind += 1
+        final_index.append(str_index)
         return [''.join([tokens[i] for i in index]) for index in final_index]
+
+    def get_similarity(self, v1, v2):
+        sim = math.sqrt(np.sum(np.square(v1 - v2)))
+        print('Current similarity: {}'.format(sim))
+        return sim
