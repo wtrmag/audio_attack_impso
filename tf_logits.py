@@ -1,15 +1,7 @@
-## tf_logits.py -- end-to-end differentable text-to-speech
-##
-## Copyright (C) 2017, Nicholas Carlini <nicholas@carlini.com>.
-##
-## This program is licenced under the BSD 2-Clause licence,
-## contained in the LICENCE file in this directory.
-
 import os
 import sys
 import numpy as np
 import tensorflow as tf
-import scipy.io.wavfile as wav
 
 # Okay, so this is ugly. We don't want DeepSpeech to crash
 # when we haven't built the language model.
