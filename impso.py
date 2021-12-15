@@ -37,8 +37,10 @@ def save_wav(audio, output_wav_file):
     wav.write(output_wav_file, 16000, x)
 
 
-def noise_mask(noise, direction_vector):
-    assert noise.shape == direction_vector.shape
+def noise_mask(noise, dt):
+    assert noise.shape == dt.shape
+    e_ = np.sqrt(np.sum(np.square(dt), axis=0))
+    direction_vector = dt / e_
     x = (noise >= 0).astype(np.int32)
     y = (direction_vector >= 0).astype(np.int32)
     c = (x - y) == 0
@@ -47,11 +49,11 @@ def noise_mask(noise, direction_vector):
 
 
 class Particle_Swarm():
-    def __init__(self, input_wav_file, phrase, capacity=100, iterations=3000, c1=0.5, c2=0.5):
+    def __init__(self, input_wav_file, phrase, capacity=500, iterations=3000, c1=0.9, c2=0.9):
         self.w_ini = 0.9
         self.w_end = 0.1
         self.c1, self.c2 = c1, c2
-        self.shift = 10
+        self.shift = 100
         self.noise_stedv = 40
         self.swarm_capacity = capacity
         self.max_iterations = iterations
@@ -66,9 +68,8 @@ class Particle_Swarm():
         region_extreme = [scores[i:i + shift].max() for i in range(0, scores.shape[0], shift)]
         return region_extreme, region_extreme_index
 
-    def run(self, iterations=50):
+    def run(self, iterations, its=20):
         tf.global_variables_initializer()
-        config = tf.ConfigProto(allow_soft_placement=True)
         evaluate = self.eval
         r1 = np.random.rand(self.swarm_capacity, self.dimension)
         r2 = np.random.rand(self.swarm_capacity, self.dimension)
@@ -82,9 +83,12 @@ class Particle_Swarm():
         flag = [1] * (self.swarm_capacity // self.shift)
         phrase_index = 0
         max_var_noise = self.flying_speed
-        print('----- PERIOD    {} -----'.format(itr // 50 + 1))
+        org_audio = evaluate.input_audio
+        org_loss = -pre_scores.max()
+        li = []
+        print('----- PERIOD    {} -----'.format(1))
         while itr <= iterations and best_phrase != evaluate.target_phrase:
-            sess = tf.Session(config=config)
+            sess = tf.Session()
 
             print('***** ITERATION {} *****'.format(itr))
             temp_swarm = self.swarm + self.flying_speed
@@ -94,10 +98,11 @@ class Particle_Swarm():
             pre_noise = self.flying_speed
 
             r = Counter(flag)
-            if itr % 50 != 0:
-                if r[1] > r[0] or itr == 2:
+            if itr % its != 0:
+                loss = -max(pre_gbest_score)
+                if r[1] > r[0] or itr % its == 1:
                     print('Current phrase: {}'.format(best_phrase))
-                    print('Current best_score: {}'.format(max(pre_gbest_score)))
+                    print('Current best_score: {}'.format(loss))
                     for k in range(self.swarm_capacity):
                         if scores[k] > pre_scores[k]:
                             self.pbest[k] = temp_swarm[k]
@@ -116,6 +121,8 @@ class Particle_Swarm():
                     self.gbest = np.vstack(temp)
 
                     self.swarm = temp_swarm
+                    # if loss < 30 and scores.max() - pre_scores.max() > 0.2:
+                    #     li.append(self.flying_speed)
 
                     if itr % 10 == 0:
                         tf.reset_default_graph()
@@ -125,25 +132,45 @@ class Particle_Swarm():
                                         + self.c2 * r2 * (self.gbest - self.swarm)
                 else:
                     print('update iteration')
-                    dists = [get_levenshtein_distance(text, evaluate.target_phrase) for text in curr_text]
-                    min_index = np.argsort(dists)[:self.shift]
-                    phrase_index = min_index[0]
+                    if loss >= 30:
+                        dists = [get_levenshtein_distance(text, evaluate.target_phrase) for text in curr_text]
+                        min_index = np.argsort(dists)[:self.shift]
+                        phrase_index = min_index[0]
 
-                    t = (self.flying_speed - pre_noise)
-                    n = [t[o] for o in min_index]
-                    new_noise = np.tile(np.mean(n, axis=0), (self.swarm_capacity, 1))
+                        t = (self.flying_speed - pre_noise)
+                        n = [t[o] for o in min_index]
+                        v = np.tile(np.mean(n, axis=0), (self.swarm_capacity, 1))
 
-                    w = math.pow(self.w_end * (self.w_ini / self.w_end), 1 / (1 + 10 * itr / self.max_iterations))
-                    v = 0.8 * new_noise + 0.2 * max_var_noise
-                    noise_mask(v, max_var_noise)
-                    self.swarm = w * self.swarm + v
+                        w1 = math.pow(self.w_end * (self.w_ini / self.w_end), 1 / (1 + 10 * itr / self.max_iterations))
+                        new_noise = max_var_noise + v
+                        self.swarm = w1 * self.swarm + (1 - w1) * new_noise
+                    else:
+                        dif = temp_swarm - self.swarm
+                        # n_ = np.mean(li, axis=0)
+                        # li = []
+                        q = np.argsort(np.abs(dif))[:, self.dimension - self.shift * 2:]
+                        random_noise = rand_noise(self.swarm_capacity, self.dimension, self.noise_stedv)
+                        for p in range(self.swarm_capacity):
+                            random_noise[p, q] = 0
+                        w2 = math.pow(self.w_end * (self.w_ini / self.w_end), 1 / (1 + 10 * itr / self.max_iterations))
+                        self.swarm = w2 * self.swarm + (1 - w2) * random_noise
 
                     flag = [1] * (self.swarm_capacity // self.shift)
             else:
-                print('----- PERIOD    {} -----'.format(itr // 50 + 1))
+                print('----- PERIOD    {} -----'.format(itr // its + 1))
+                diff = self.swarm - org_audio
                 random_noise = rand_noise(self.swarm_capacity, self.dimension, self.noise_stedv)
-                noise_mask(random_noise, max_var_noise)
+                if org_loss - loss >= 2:
+                    noise_mask(random_noise, diff)
+                else:
+                    q = np.argsort(np.abs(diff))[:, self.dimension // 2:]
+                    for p in range(self.swarm_capacity):
+                        random_noise[p, q] = 0
                 self.flying_speed = random_noise
+                org_audio = self.swarm
+                org_loss = loss
+                iii = np.argsort(scores)[self.swarm_capacity - self.shift:]
+                self.swarm = np.tile(self.swarm[iii], (self.swarm_capacity // self.shift, 1))
 
             itr += 1
             sess.close()
@@ -175,7 +202,7 @@ if __name__ == '__main__':
     if itr < pso.max_iterations or (itr == pso.max_iterations and phrase in all_text):
         ii = all_text.index(phrase)
         save_wav(pso.swarm[ii], out_wav_file)
-        print("adversarial example successfully generates with {} s".format((e - s) / 1000))
+        print("adversarial example successfully generates with {} s".format(e - s))
     else:
         print("we try it,but still fail")
         print("best result after {} iterations: {}".format(pso.max_iterations, try_phrase))
