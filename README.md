@@ -13,7 +13,7 @@ DeepSpeech may throw a warning saying "decoder library file does not exist" but 
 ## Running Attacks
 Now create and run an attack, for example:
 ```bash
-python run_audio_attack.py sample_input.wav "hello world"
+python impso.py sample_input.wav "hello world"
 ``` 
 Of course, `sample_input.wav` may be changed to any input audio file and `"hello world"` may be changed to any target transcription.
 

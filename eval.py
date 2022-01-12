@@ -1,9 +1,7 @@
-import math
+import sys
 import numpy as np
 import scipy.io.wavfile as wav
 from tf_logits import get_logits
-import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import tensorflow as tf
 from tensorflow.python.keras.backend import ctc_label_dense_to_sparse
 
@@ -58,15 +56,10 @@ class Eval():
         ctc_loss, decode = sess.run([ctc_loss, decoded],
                                     feed_dict={inp: data, input_len: self.audio_length, target_in:
                                         self.target_index, target_len: self.target_length, arg: self.weird})
-        # print('ctc loss :{}'.format(ctc_loss))
         return ctc_loss, decode
 
     def get_fitness(self, sess, data):
         loss, decode = self.get_loss(sess, data)
-        # all_text = ''.join([tokens[i] for i in decode[0].values])
-        # index = len(all_text) // self.batch_size
-        # final_text = all_text[:index]
-
         final_text = self.decode_text(decode)
         return np.array(-loss), final_text
 
@@ -87,7 +80,11 @@ class Eval():
         final_index.append(str_index)
         return [''.join([tokens[i] for i in index]) for index in final_index]
 
-    def get_similarity(self, v1, v2):
-        sim = math.sqrt(np.sum(np.square(v1 - v2)))
-        print('Current similarity: {}'.format(sim))
-        return sim
+
+if __name__ == '__main__':
+    input_wav_file = sys.argv[1]
+
+    evaluate = Eval(load_wav(input_wav_file), ' ', 1)
+    with tf.Session() as sess:
+        c, t = evaluate.get_fitness(sess, evaluate.input_audio)
+        print(t)
