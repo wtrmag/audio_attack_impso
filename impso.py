@@ -68,23 +68,24 @@ class Particle_Swarm():
         region_extreme = [scores[i:i + shift].max() for i in range(0, scores.shape[0], shift)]
         return region_extreme, region_extreme_index
 
-    def run(self, iterations, its=20, phrase_index=0):
+    def run(self, iterations, its=20):
         tf.global_variables_initializer()
         evaluate = self.eval
-        temp_swarm = self.swarm
         with tf.Session() as sess:
             pre_scores, curr_text = evaluate.get_fitness(sess, self.swarm)
+        best_phrase = curr_text[0]
         pre_gbest_score, pre_index = self.find_region_extreme(pre_scores, self.shift)
         gbest = [self.swarm[ind].tolist() for ind in pre_index]
 
-        itr, y_ = 1, 0.2
+        itr = 1
         flag = [1] * (self.swarm_capacity // self.shift)
+        phrase_index = 0
         max_var_noise = self.flying_speed
         org_audio = evaluate.input_audio
         org_loss = -pre_scores.max()
-        # li = [[0]*self.dimension]
+        li = []
         print('----- PERIOD    {} -----'.format(1))
-        while itr <= iterations and evaluate.target_phrase not in curr_text:
+        while itr <= iterations and best_phrase != evaluate.target_phrase:
             sess = tf.Session()
             r1 = np.random.rand(self.swarm_capacity, self.dimension)
             r2 = np.random.rand(self.swarm_capacity, self.dimension)
@@ -102,6 +103,11 @@ class Particle_Swarm():
                 if r[1] > r[0] or itr % its == 1:
                     print('Current best phrase: {}'.format(best_phrase))
                     print('Current best score: {}'.format(loss))
+            if itr % its != 0:
+                loss = -max(pre_gbest_score)
+                if r[1] > r[0] or itr % its == 1:
+                    print('Current phrase: {}'.format(best_phrase))
+                    print('Current best_score: {}'.format(loss))
                     for k in range(self.swarm_capacity):
                         if scores[k] > pre_scores[k]:
                             self.pbest[k] = temp_swarm[k]
@@ -122,10 +128,13 @@ class Particle_Swarm():
                     self.swarm = temp_swarm
                     # c = scores.max() - pre_scores.max()
                     # if (loss < 30 and c > 0.2) or (loss < 20 and c > 0.1):
+                    # if loss < 30 and scores.max() - pre_scores.max() > 0.2:
                     #     li.append(self.flying_speed)
 
                     if itr % 10 == 0:
                         tf.reset_default_graph()
+                        if evaluate.target_phrase in curr_text:
+                            break
                     self.flying_speed = self.flying_speed + self.c1 * r1 * (self.pbest - self.swarm) \
                                         + self.c2 * r2 * (self.gbest - self.swarm)
                 else:
@@ -134,6 +143,7 @@ class Particle_Swarm():
                         dists = [get_levenshtein_distance(text, evaluate.target_phrase) for text in curr_text]
                         min_index = np.argsort(dists)[:self.shift]
                         # phrase_index = min_index[0]
+                        phrase_index = min_index[0]
 
                         t = (self.flying_speed - pre_noise)
                         n = [t[o] for o in min_index]
@@ -145,6 +155,7 @@ class Particle_Swarm():
                     else:
                         dif = temp_swarm - self.swarm
                         # n_ = np.mean(li, axis=0)
+                        # li = []
                         q = np.argsort(np.abs(dif))[:, self.dimension - self.shift * 2:]
                         random_noise = rand_noise(self.swarm_capacity, self.dimension, self.noise_stedv)
                         for p in range(self.swarm_capacity):
@@ -166,7 +177,7 @@ class Particle_Swarm():
                     for p in range(self.swarm_capacity):
                         random_noise[p, q] = 0
                 self.flying_speed = random_noise
-                if org_loss - loss < y_:
+                if org_loss - loss < 0.2:
                     self.swarm = org_audio
                 org_audio = tt
                 org_loss = loss
@@ -174,11 +185,15 @@ class Particle_Swarm():
                 self.swarm = np.tile(self.swarm[iii], (self.swarm_capacity // self.shift, 1))
                 # if loss < 20:
                 #     its, y_ = 10, 0.1
+                org_audio = self.swarm
+                org_loss = loss
+                iii = np.argsort(scores)[self.swarm_capacity - self.shift:]
+                self.swarm = np.tile(self.swarm[iii], (self.swarm_capacity // self.shift, 1))
 
             itr += 1
             sess.close()
 
-        return itr, temp_swarm, curr_text
+        return itr, best_phrase, curr_text
 
 
 if __name__ == '__main__':
@@ -193,6 +208,7 @@ if __name__ == '__main__':
     input_wav_file = args.input_wav_file
     phrase = args.phrase.lower()
     out_wav_file = input_wav_file[:-4] + '_adv.wav'
+    log_file = input_wav_file[:-4] + '_log.txt'
 
     print('target phrase:', phrase)
     print('source file:', input_wav_file)
